@@ -9,8 +9,10 @@
 // Definition of structures
 
 
+// Function signatures for configuration tree
 
-// Function signatures
+
 
 int main(int argc, char ** argv);
-void * configAssembler(char ** filename);
+void * config_assembler(char ** filename);
+
