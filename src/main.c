@@ -299,7 +299,15 @@ int main(int argc, char ** argv){
 
     cJSON * root = setup("instSets/mips.set");
 
-    char ** parsedLine = parseLine("addi $t0, $t1, 0x0000", root);
+    printf("%s", cJSON_Print(root));
+    
+    exit(0);
+
+    char * line = malloc(sizeof(char) * LINESIZE);
+
+    line = "add $t0, $t0, $t0";
+
+    char ** parsedLine = parseLine(line, root);
 
     printf("%s", parsedLine[0]);
 
