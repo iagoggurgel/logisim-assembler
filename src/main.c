@@ -5,6 +5,8 @@
 // Definition of macros
 
 #define LINESIZE 25UL
+#define INT16MAX 65535UL
+#define INT32MAX 4294967295UL
 
 #include "cJSON.h"
 #include <stdio.h>
@@ -28,6 +30,8 @@ char ** parseLine(char *, cJSON *);
 char * getInst(char *);
 int findWhitespaceIndex(char *);
 char * getReg(int, char *);
+char * getImmd(char *);
+char * getLabel(char *);
 
 // function signatures for configuration
 char * getContent(FILE *);
@@ -129,6 +133,8 @@ char ** parseLine(char * line, cJSON * root){
 
     char ** parsedLine = (char **) malloc(sizeof(char *) * (cJSON_GetArraySize(argsArray) + 1));
 
+    memset(parsedLine, 0, sizeof(char *) * (cJSON_GetArraySize(argsArray) + 1));
+
     parsedLine[0] = asmInst;
 
     for (int i = 1; i < cJSON_GetArraySize(argsArray) + 1; i++){
@@ -141,42 +147,120 @@ char ** parseLine(char * line, cJSON * root){
 
         else if (!strcmp("immd", cJSON_GetArrayItem(argsArray, i)->valuestring))
         {
-            // substring = getImmd();
+            substring = getImmd(line);
             parsedLine[i] = substring;
         }
 
         else if (!strcmp("label", cJSON_GetArrayItem(argsArray, i)->valuestring))
         {
-            // substring = getLabel();
+            substring = getLabel(line);
             parsedLine[i] = substring;
         }
     }
 
-    exit(0);
+    return parsedLine;
 
 
 }
 
-char * getReg(int counter, char * line){
-
-    char * regName = (char *) malloc(sizeof(char) * 20);
-    memset(regName, 0, 20);
-    int index;
+char * getLabel(char * line){
+    char * label = (char *) malloc(sizeof(char) * 20);
+    memset(label, 0, 20);
+    int index = 0;
 
     char * duplicate = line;
 
-    for (int i = 0; i < strlen(duplicate); i++){
-        if (duplicate[i] == '$'){
-            index = i;
+    for (int i = 0; i < strlen(duplicate) - 1; i++){
+        if (duplicate[i] == '_'){
+            index = i + 1;
             break;
         }
+    }
+
+    if (index == 0){
+        printf("No match found!");
+        exit(1);
     }
 
     duplicate = duplicate + index;
 
     int j = 0;
 
-    while (!(*duplicate - '\0' == 44 || *duplicate - '\0' == 32))
+    while (!(*duplicate == '\0'))
+    {
+        label[j] = *duplicate;
+        duplicate += 1;
+        j += 1;
+    }
+    
+    return label;
+
+}
+
+char * getImmd(char * line){
+    char * immd = (char *) malloc(sizeof(char) * 20);
+    memset(immd, 0, 20);
+    int index = 0;
+
+    char * duplicate = line;
+    
+    for (int i = 0; i < strlen(duplicate) - 1; i++){
+        if (((duplicate[i] << 8) + duplicate[i + 1]) == '0x'){
+            index = i + 2;
+            break;
+        }
+    }
+
+    if (index == 0){
+        printf("No match found!");
+        exit(1);
+    }
+
+    duplicate = duplicate + index;
+
+    int j = 0;
+
+    while (!(*duplicate == '\0'))
+    {
+        immd[j] = *duplicate;
+        duplicate += 1;
+        j += 1;
+    }
+    
+    return immd;
+}
+
+char * getReg(int counter, char * line){
+
+    char * regName = (char *) malloc(sizeof(char) * 20);
+    memset(regName, 0, 20);
+    int index = 0;
+
+    char * duplicate = line;
+    int internal = 0;
+
+    for (int i = 0; i < strlen(duplicate); i++){
+        if (duplicate[i] == '$'){
+            
+            if (internal == counter){
+                index = i;
+                break;
+            }
+            internal += 1;
+        }
+    }
+
+    if (index == 0){
+        printf("No match found!");
+        exit(1);
+    }
+
+    index = index + 1;
+    duplicate = duplicate + index;
+
+    int j = 0;
+
+    while (!(*duplicate - '\0' == 44 || *duplicate - '\0' == 32 || *duplicate == '\0'))
     {
         regName[j] = *duplicate;
         duplicate += 1;
@@ -215,7 +299,9 @@ int main(int argc, char ** argv){
 
     cJSON * root = setup("instSets/mips.set");
 
-    printf("%s", getReg(0, "add $t0, $t0, $t0"));
+    char ** parsedLine = parseLine("addi $t0, $t1, 0x0000", root);
+
+    printf("%s", parsedLine[0]);
 
     exit(0);
 
@@ -225,5 +311,5 @@ int main(int argc, char ** argv){
 }
 
 int run(int argc, char ** argv){
-    
+    return 0;
 }
