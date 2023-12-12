@@ -4,7 +4,7 @@
 
 // Definition of macros
 
-#define LINESIZE 25UL
+#define LINESIZE 100UL
 #define INT16MAX 65535UL
 #define INT32MAX 4294967295UL
 
@@ -25,24 +25,31 @@ void printAuthor();
 // function signatures for assembler
 int main(int, char **);
 void checkForOpt(int, char **);
-int run(int argc, char ** argv);
+int run(int, char **);
 char ** parseLine(char *, cJSON *);
 char * getInst(char *);
 int findWhitespaceIndex(char *);
 char * getReg(int, char *);
 char * getImmd(char *);
 char * getLabel(char *);
+int assemble(cJSON * , char **, cJSON *, cJSON *);
+int saveResult(int *, char *);
 
 // function signatures for configuration
 char * getContent(FILE *);
 unsigned long getSize(FILE *);
-cJSON * setup(char * filename);
+cJSON * setup(char *);
 
 cJSON * setup(char * filename){
 
     FILE * fp;
 
     fp = fopen(filename, "r");
+
+    if (fp == NULL){
+        printf(".set file does not exist.\n");
+        exit(EXIT_FAILURE);
+    }
 
     char * fileContent = getContent(fp);
 
@@ -89,14 +96,19 @@ void checkForOpt(int argc,char ** argv){
     for(int i = 0; i < argc; i++){
         if (!strcmp(argv[i], "--h") || !strcmp(argv[i], "-h")){
             printHelp();
+            exit(EXIT_SUCCESS);
         }
 
         else if (!strcmp(argv[i], "--a") || !strcmp(argv[i], "-a")){
             printAuthor();
+            exit(EXIT_SUCCESS);
         }
 
         else {
-            run(argc, argv);
+            if(run(argc, argv) == 0){
+                printf("Assembly coded!\n");
+                exit(EXIT_SUCCESS);
+            }
         }
     }
 }
@@ -133,29 +145,32 @@ char ** parseLine(char * line, cJSON * root){
 
     char ** parsedLine = (char **) malloc(sizeof(char *) * (cJSON_GetArraySize(argsArray) + 1));
 
-    memset(parsedLine, 0, sizeof(char *) * (cJSON_GetArraySize(argsArray) + 1));
-
     parsedLine[0] = asmInst;
 
-    for (int i = 1; i < cJSON_GetArraySize(argsArray) + 1; i++){
+    for (int i = 0; i < cJSON_GetArraySize(argsArray); i++){
         char * substring = (char *) malloc(sizeof(char) * LINESIZE);
         if (!strcmp("reg", cJSON_GetArrayItem(argsArray, i)->valuestring))
         {
             substring = getReg(i, line);
-            parsedLine[i] = substring;
+            parsedLine[i + 1] = substring;
+            continue;
         }
 
         else if (!strcmp("immd", cJSON_GetArrayItem(argsArray, i)->valuestring))
         {
             substring = getImmd(line);
-            parsedLine[i] = substring;
+            parsedLine[i + 1] = substring;
+            continue;
         }
 
         else if (!strcmp("label", cJSON_GetArrayItem(argsArray, i)->valuestring))
         {
             substring = getLabel(line);
-            parsedLine[i] = substring;
+            parsedLine[i + 1] = substring;
+            continue;
         }
+
+        parsedLine[i + 1] = NULL;
     }
 
     return parsedLine;
@@ -179,7 +194,7 @@ char * getLabel(char * line){
 
     if (index == 0){
         printf("No match found!");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     duplicate = duplicate + index;
@@ -213,7 +228,7 @@ char * getImmd(char * line){
 
     if (index == 0){
         printf("No match found!");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     duplicate = duplicate + index;
@@ -252,7 +267,7 @@ char * getReg(int counter, char * line){
 
     if (index == 0){
         printf("No match found!");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     index = index + 1;
@@ -297,27 +312,149 @@ int findWhitespaceIndex(char * line){
 
 int main(int argc, char ** argv){
 
-    cJSON * root = setup("instSets/mips.set");
-
-    printf("%s", cJSON_Print(root));
-    
-    exit(0);
-
-    char * line = malloc(sizeof(char) * LINESIZE);
-
-    line = "add $t0, $t0, $t0";
-
-    char ** parsedLine = parseLine(line, root);
-
-    printf("%s", parsedLine[0]);
-
-    exit(0);
-
     checkForOpt(argc, argv);
 
     return 0;
 }
 
 int run(int argc, char ** argv){
+
+    cJSON * root = setup(argv[1]);
+
+    cJSON * types = cJSON_GetObjectItem(root, "types");
+
+    cJSON * rBank = cJSON_GetObjectItem(root, "registerBank");
+
+    rBank = cJSON_GetObjectItem(rBank, "regBank");
+
+
+    cJSON * instructions = cJSON_GetObjectItem(root, "instructions");
+
+    FILE * asmFile = fopen(argv[2], "r");
+
+    if (asmFile == NULL){
+        printf("asm file does not exist\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    int * memory = (int *) malloc(sizeof(int) * (INT16MAX + 1));
+
+    int counter = 0;
+
+    char * line;
+
+    char ** parsedLine;
+
+    cJSON * instruction;
+
+    int instructionI;
+
+    while(!feof(asmFile)){
+        
+        line = malloc(sizeof(char) * LINESIZE);
+
+        fgets(line, LINESIZE, asmFile);
+
+        parsedLine = parseLine(line, root);
+
+        instruction = cJSON_GetObjectItem(instructions, parsedLine[0]);
+
+        instructionI = assemble(instruction, parsedLine, types, rBank);
+
+        memory[counter] = instructionI;
+
+    }
+
+    saveResult(memory, argv[3]);
+
     return 0;
+}
+
+int assemble(cJSON * inst, char ** parseLine, cJSON * types, cJSON * regBank){
+
+    int instruction = 0;
+
+    cJSON * instType = cJSON_GetObjectItem(types, cJSON_GetObjectItem(inst, "type")->valuestring);
+
+    int * fields = (int *) malloc(sizeof(int) * cJSON_GetArraySize(instType));
+
+    int * fieldSizes = (int *) malloc(sizeof(int) * cJSON_GetArraySize(instType));
+
+    cJSON * typeField;
+
+    cJSON * fieldId;
+
+    cJSON * fieldSize;
+
+    cJSON * field;
+
+    int temp;
+
+    for(int i = 0; i < cJSON_GetArraySize(instType); i++){
+
+        typeField = cJSON_GetArrayItem(instType, i);
+
+        fieldId = cJSON_GetObjectItem(typeField, "id");
+
+        fieldSize = cJSON_GetObjectItem(typeField, "size");
+
+        field = cJSON_GetObjectItem(inst, "fields");
+
+        temp = cJSON_GetObjectItem(field, fieldId->valuestring)->valueint;
+
+        if (!strcmp(fieldId->valuestring, "rs") || !strcmp(fieldId->valuestring, "rt") || !strcmp(fieldId->valuestring, "rd")){
+
+            fields[i] = cJSON_GetObjectItem(regBank, "zero")->valueint;
+        }
+
+        else
+        {
+            fields[i] = temp;
+        }
+
+        fieldSizes[i] = fieldSize->valueint;
+    }
+
+    int shift = 0;
+
+    for(int i = 0; i < cJSON_GetArraySize(instType); i++){
+        shift = shift + fieldSizes[i];
+
+        instruction += fields[i] << (32 - shift);
+    }
+
+    printf("0x%08x\n", instruction);
+
+    free(instType);
+    free(fields);
+    free(fieldSizes);
+    free(typeField);
+    free(fieldId);
+    free(fieldSize);
+    free(field);
+
+    return instruction;
+}
+
+int saveResult(int * memory, char * filename){
+
+    FILE * filePointer;
+
+    filePointer = fopen(filename, "a");
+
+    if(filePointer == NULL){
+        return 1;
+    }
+
+    for(unsigned int counter = 0; counter < (INT16MAX + 1); counter++){
+        if(counter % 8 == 0){
+            fprintf(filePointer, "\n%04x : %08x", counter, memory[counter]);
+            continue;
+        }
+
+        fprintf(filePointer, " %08x", memory[counter]);
+    }
+    
+    return 0;
+
 }
